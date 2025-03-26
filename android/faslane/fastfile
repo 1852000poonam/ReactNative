@@ -1,0 +1,9 @@
+default_platform(:android)
+
+platform :android do
+  desc "Deploy app to Google Play"
+  lane :deploy do
+    gradle(task: "bundleRelease")
+    upload_to_play_store(track: "internal")
+  end
+end

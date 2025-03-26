@@ -1,0 +1,112 @@
+name: React Native CI/CD
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+
+  workflow_dispatch: # Allows manual triggering
+
+  release:
+    types: [created] # Runs on new tag releases
+
+jobs:
+  build-android:
+    name: Build & Deploy Android
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install Dependencies
+        run: yarn install
+
+      - name: Run Linter
+        run: yarn lint
+
+      - name: Run Tests
+        run: yarn test
+
+      - name: Setup Java & Android SDK
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: 17
+
+      - name: Build Android APK
+        run: |
+          cd android
+          ./gradlew assembleRelease
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: app-release.apk
+          path: android/app/build/outputs/apk/release/app-release.apk
+
+      - name: Build Android AAB (Play Store)
+        run: |
+          cd android
+          ./gradlew bundleRelease
+
+      - name: Upload AAB Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: app-release.aab
+          path: android/app/build/outputs/bundle/release/app-release.aab
+
+      - name: Deploy to Play Store (Fastlane)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GOOGLE_PLAY_JSON: ${{ secrets.GOOGLE_PLAY_JSON }}
+        run: |
+          echo "$GOOGLE_PLAY_JSON" > android/fastlane/google_play.json
+          cd android && fastlane android deploy
+
+  build-ios:
+    name: Build & Deploy iOS
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install Dependencies
+        run: yarn install
+
+      - name: Install CocoaPods
+        run: cd ios && pod install
+
+      - name: Build iOS App
+        env:
+          XCODE_SCHEME: "YourApp"
+          XCODE_WORKSPACE: "ios/YourApp.xcworkspace"
+        run: |
+          xcodebuild -workspace $XCODE_WORKSPACE \
+            -scheme $XCODE_SCHEME \
+            -sdk iphoneos \
+            -configuration Release \
+            CODE_SIGN_IDENTITY="iPhone Developer"
+
+      - name: Deploy to TestFlight (Fastlane)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+        run: |
+          cd ios && fastlane ios deploy
